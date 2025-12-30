@@ -1,0 +1,75 @@
+name: 手動發布
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., 3.24.123110). Leave blank to auto-generate.'
+        required: false
+        
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check for signing secrets
+        run: |
+          if [ "${{ secrets.RELEASE_KEY_STORE }}" == "" ]; then
+            echo "Secret RELEASE_KEY_STORE is not set. Aborting."
+            exit 1
+          fi
+      - name: Generate version
+        id: set-ver
+        run: |
+          if [ "${{ github.event.inputs.version }}" != "" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=$(date -d "8 hour" -u +3.%y.%m%d%H)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: 17
+
+      - name: Release Apk Sign
+        run: |
+          echo -e "\n" >> gradle.properties
+          echo RELEASE_KEY_ALIAS='${{ secrets.RELEASE_KEY_ALIAS }}' >> gradle.properties
+          echo RELEASE_KEY_PASSWORD='${{ secrets.RELEASE_KEY_PASSWORD }}' >> gradle.properties
+          echo RELEASE_STORE_PASSWORD='${{ secrets.RELEASE_STORE_PASSWORD }}' >> gradle.properties
+          echo RELEASE_STORE_FILE='./key.jks' >> gradle.properties
+          echo ${{ secrets.RELEASE_KEY_STORE }} | base64 --decode > $GITHUB_WORKSPACE/app/key.jks
+
+      - name: Unify Version Name
+        run: |
+          echo "统一版本号为 ${{ steps.set-ver.outputs.version }}"
+          sed -i "/def version/c def version = \"${{ steps.set-ver.outputs.version }}\"" $GITHUB_WORKSPACE/app/build.gradle
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build with Gradle
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleAppRelease --build-cache --parallel --daemon --warning-mode all
+
+      - name: Find APK
+        id: find_apk
+        run: |
+          APK_PATH=$(find app/build/outputs/apk/app/release -name "*.apk" | head -n 1)
+          echo "Found APK at ${APK_PATH}"
+          echo "path=${APK_PATH}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Legado ${{ steps.set-ver.outputs.version }}
+          tag_name: ${{ steps.set-ver.outputs.version }}
+          body_path: CHANGELOG.md
+          draft: false
+          prerelease: false
+          files: ${{ steps.find_apk.outputs.path }}
