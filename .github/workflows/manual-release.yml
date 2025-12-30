@@ -37,12 +37,19 @@ jobs:
 
       - name: Release Apk Sign
         run: |
-          echo -e "\n" >> gradle.properties
-          echo RELEASE_KEY_ALIAS='${{ secrets.RELEASE_KEY_ALIAS }}' >> gradle.properties
-          echo RELEASE_KEY_PASSWORD='${{ secrets.RELEASE_KEY_PASSWORD }}' >> gradle.properties
-          echo RELEASE_STORE_PASSWORD='${{ secrets.RELEASE_STORE_PASSWORD }}' >> gradle.properties
-          echo RELEASE_STORE_FILE='./key.jks' >> gradle.properties
-          echo ${{ secrets.RELEASE_KEY_STORE }} | base64 --decode > $GITHUB_WORKSPACE/app/key.jks
+          echo "Setting up signing information..."
+          
+          # Decode and write the keystore file
+          echo "${{ secrets.RELEASE_KEY_STORE }}" | base64 --decode > $GITHUB_WORKSPACE/app/key.jks
+          
+          # Append signing configuration to gradle.properties
+          cat >> $GITHUB_WORKSPACE/gradle.properties << EOF
+
+          RELEASE_KEY_ALIAS=${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD=${{ secrets.RELEASE_KEY_PASSWORD }}
+          RELEASE_STORE_PASSWORD=${{ secrets.RELEASE_STORE_PASSWORD }}
+          RELEASE_STORE_FILE=./key.jks
+          EOF
 
       - name: Unify Version Name
         run: |
